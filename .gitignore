@@ -13,6 +13,6 @@ version/archive[0-9][0-9][0-9][0-9]
 version/*.*
 version/assets/webview/extensions
 version/assets/webview/theme
-version/assets/webview/workspace-scripts
+version/assets/webview/better-nemo
 version/assets/webview/workspace.html
-version/assets/webview/extension-loader.js
+version/assets/webview/loader.js
