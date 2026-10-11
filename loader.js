@@ -82,8 +82,8 @@ function isCloudflareEnv() {
     return window.location.hostname == "bn-p.pages.dev";
 }
 // --------------- 调试配置 ---------------
-WS_DEBUG_SERVER = "ws://192.168.1.12:1234";
-HTTP_DEBUG_SERVER = "http://192.168.1.12:8080";
+WS_DEBUG_SERVER = "ws://192.168.1.6:1234";
+HTTP_DEBUG_SERVER = "http://192.168.1.6:8080";
 // --------------- Webview调试服务器 ---------------
 let debugServer = { send: () => {} };
 if (isPhoneTestEnv()) {
@@ -94,6 +94,97 @@ if (isPhoneTestEnv()) {
         debugServer.onopen = () => debugServer.send('{"type":"WS","data":["已连接"]}');
     }
     reconnect();
+    (function () {
+        "use strict";
+
+        // 防止重复注入
+        if (window.__consoleForwarded) return;
+        window.__consoleForwarded = true;
+
+        // 保存原始方法（防止递归）
+        const originals = {};
+        ["log", "info", "debug", "warn", "error", "trace"].forEach(function (level) {
+            originals[level] = console[level] ? console[level].bind(console) : null;
+        });
+
+        // 模拟场景用的原始引用，避免 send 内部调用 console 造成递归
+        window.__originConsoleLog = originals.log;
+
+        let sending = false; // 防止 debugServer.send 内部打印导致无限递归
+
+        // 安全序列化，处理循环引用 / Error / BigInt / Function
+        function serialize(value) {
+            const seen = new WeakSet();
+            try {
+                return JSON.stringify(value, function (key, val) {
+                    if (typeof val === "object" && val !== null) {
+                        if (seen.has(val)) return "[Circular]";
+                        seen.add(val);
+                    }
+                    if (typeof val === "function") return "[Function " + (val.name || "anonymous") + "]";
+                    if (typeof val === "bigint") return val.toString() + "n";
+                    if (val instanceof Error) {
+                        return { name: val.name, message: val.message, stack: val.stack };
+                    }
+                    return val;
+                });
+            } catch (e) {
+                try {
+                    return String(value);
+                } catch (_) {
+                    return "[Unserializable]";
+                }
+            }
+        }
+
+        // 把参数数组转成字符串数组
+        function format(args) {
+            return Array.prototype.map.call(args, function (a) {
+                if (typeof a === "string") return a;
+                if (a instanceof Error) return a.stack || a.name + ": " + a.message;
+                return serialize(a);
+            });
+        }
+
+        // 核心转发
+        function forward(type, args) {
+            if (sending) return;
+            let payload;
+            try {
+                payload = JSON.stringify({ type: type, data: format(args) });
+            } catch (e) {
+                payload = JSON.stringify({ type: type, data: ["[序列化失败]"] });
+            }
+            sending = true;
+            try {
+                if (typeof debugServer !== "undefined" && debugServer && typeof debugServer.send === "function") {
+                    debugServer.send(payload);
+                }
+            } catch (e) {
+                // 静默失败，避免影响业务
+            } finally {
+                sending = false;
+            }
+        }
+
+        // 劫持各日志方法
+        ["log", "info", "debug", "warn", "error", "trace"].forEach(function (level) {
+            if (!originals[level]) return;
+            console[level] = function () {
+                forward(level, arguments);
+                return originals[level].apply(null, arguments);
+            };
+        });
+
+        // 额外捕获：全局错误 & 未处理的 Promise rejection
+        window.addEventListener("error", function (e) {
+            forward("error", [e.message, e.filename + ":" + e.lineno + ":" + e.colno, e.error]);
+        });
+
+        window.addEventListener("unhandledrejection", function (e) {
+            forward("error", ["Unhandled Promise Rejection", e.reason]);
+        });
+    })();
 }
 // --------------- 工具函数 ---------------
 function extensionMgrLog(...msg) {
@@ -309,98 +400,6 @@ function selectFileFromDevice(client) {
 }
 const dnc = new DroidNetClient({ baseUrl: "http://127.0.0.1:1145" });
 
-(function () {
-    "use strict";
-
-    // 防止重复注入
-    if (window.__consoleForwarded) return;
-    window.__consoleForwarded = true;
-
-    // 保存原始方法（防止递归）
-    const originals = {};
-    ["log", "info", "debug", "warn", "error", "trace"].forEach(function (level) {
-        originals[level] = console[level] ? console[level].bind(console) : null;
-    });
-
-    // 模拟场景用的原始引用，避免 send 内部调用 console 造成递归
-    window.__originConsoleLog = originals.log;
-
-    let sending = false; // 防止 debugServer.send 内部打印导致无限递归
-
-    // 安全序列化，处理循环引用 / Error / BigInt / Function
-    function serialize(value) {
-        const seen = new WeakSet();
-        try {
-            return JSON.stringify(value, function (key, val) {
-                if (typeof val === "object" && val !== null) {
-                    if (seen.has(val)) return "[Circular]";
-                    seen.add(val);
-                }
-                if (typeof val === "function") return "[Function " + (val.name || "anonymous") + "]";
-                if (typeof val === "bigint") return val.toString() + "n";
-                if (val instanceof Error) {
-                    return { name: val.name, message: val.message, stack: val.stack };
-                }
-                return val;
-            });
-        } catch (e) {
-            try {
-                return String(value);
-            } catch (_) {
-                return "[Unserializable]";
-            }
-        }
-    }
-
-    // 把参数数组转成字符串数组
-    function format(args) {
-        return Array.prototype.map.call(args, function (a) {
-            if (typeof a === "string") return a;
-            if (a instanceof Error) return a.stack || a.name + ": " + a.message;
-            return serialize(a);
-        });
-    }
-
-    // 核心转发
-    function forward(type, args) {
-        if (sending) return;
-        let payload;
-        try {
-            payload = JSON.stringify({ type: type, data: format(args) });
-        } catch (e) {
-            payload = JSON.stringify({ type: type, data: ["[序列化失败]"] });
-        }
-        sending = true;
-        try {
-            if (typeof debugServer !== "undefined" && debugServer && typeof debugServer.send === "function") {
-                debugServer.send(payload);
-            }
-        } catch (e) {
-            // 静默失败，避免影响业务
-        } finally {
-            sending = false;
-        }
-    }
-
-    // 劫持各日志方法
-    ["log", "info", "debug", "warn", "error", "trace"].forEach(function (level) {
-        if (!originals[level]) return;
-        console[level] = function () {
-            forward(level, arguments);
-            return originals[level].apply(null, arguments);
-        };
-    });
-
-    // 额外捕获：全局错误 & 未处理的 Promise rejection
-    window.addEventListener("error", function (e) {
-        forward("error", [e.message, e.filename + ":" + e.lineno + ":" + e.colno, e.error]);
-    });
-
-    window.addEventListener("unhandledrejection", function (e) {
-        forward("error", ["Unhandled Promise Rejection", e.reason]);
-    });
-})();
-
 // --------------- 加载页面 ---------------
 (async () => {
     window.__DEBUG__ = false;
@@ -410,7 +409,8 @@ const dnc = new DroidNetClient({ baseUrl: "http://127.0.0.1:1145" });
     await loadScript("better-nemo/CUELoader-preview.user.js");
     setLoaderInfo("加载Nemo核心...");
     if (isCloudflareEnv()) loadScript("https://db0l8fnn8oqtof.database.nocode.cn/storage/v1/object/public/wenjian/anonymous/1776601566193_aowalndxrwh.js");
-    else loadScript("assets/workspace.bundle.79d6432e01ccdecb492a.js");
+    else if (isPhoneTestEnv() || isPCTestEnv() || PLAYER) loadScript("assets/workspace.bundle.79d6432e01ccdecb492a.js");
+    else loadScript("workspace.bundle.79d6432e01ccdecb492a.js");
     setLoaderInfo("资源加载完成！");
     document.title = "BN Player";
 })();

@@ -851,7 +851,7 @@
                 if (check[0] === "Boolean" && check.length === 1 && value !== undefined) return `<value name="${name}"><shadow type="logic_boolean"><field name="BOOL">${value ? "true" : "false"}</field></shadow></value>`;
                 if (check[0] === "Boolean" && check.length === 1 && value === undefined) return `<value name="${name}"><empty type="logic_empty"><field name="BOOL"></field></empty></value>`;
                 if (check[0] === "Number" && check.length === 1) return `<value name="${name}"><shadow type="math_number"><field name="NUM">${value || 0}</field></shadow></value>`;
-                if (check.includes("String")) return `<value name="${name}"><shadow type="text"><field name="TEXT">${value || ""}</field></shadow></value>`;
+                if (check.includes("String")) return `<value name="${name}"><shadow type="text" visible="visible"><field name="TEXT">${value || ""}</field></shadow></value>`;
                 return "";
             }
             /**
@@ -2289,14 +2289,15 @@
             setInterval(() => reloadToolbox(), 2000);
         }
         async function testExtension(file) {
-            installExt(await (await fetch("http://192.168.1.12:8080/" + file)).text(), false, file);
+            installExt(await (await fetch("http://192.168.1.6:8080/" + file)).text(), false, file);
         }
         if (window.__DEBUG__ && !isPlayer() && !new URLSearchParams(location.search).has("workId")) {
             // testExtension('MY_EXTENSION.cue.js');
             // testExtension('源码云空间.cue.js');
-            // testExtension("other/调试.cue.js");
             // testExtension("other/柠支付.cue.js");
+            // testExtension("other/调试.cue.js");
         }
+        // testExtension("other/[豆包]HTTP扩展.cue.js");
         const SCRIPT_UPDATE_DESC = ["# 2026.8.28", "更新 [CUEP] 扩展安装提示", "修复 获取 Webpack Require 时 chunk 冲突", "# 2026.8.27", "更新 [KNP] 积木快速搜索", "更新 脚本更新提示", "修复 [CUEP] 图标异常", "# 2026.8.24", "修复 [CUEP] 扩展无法获取画笔对象", "新增 脚本更新提示"]
             .map(text => {
                 let dot = `<i style="font-size:24px;margin-right:10px;line-height: 0;"><svg width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false" viewBox="0 0 1024 1024"><path d="M512 512m-213.333333 0a213.333333 213.333333 0 1 0 426.666666 0 213.333333 213.333333 0 1 0-426.666666 0Z" fill="#D9D9D9" p-id="10239"></path></svg></i>`;
